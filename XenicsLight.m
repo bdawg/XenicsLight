@@ -22,7 +22,7 @@ function varargout = XenicsLight(varargin)
 
 % Edit the above text to modify the response to help XenicsLight
 
-% Last Modified by GUIDE v2.5 21-Jul-2015 16:30:16
+% Last Modified by GUIDE v2.5 11-Oct-2015 18:23:41
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -131,7 +131,9 @@ boxCoords = [1 1 frm.width frm.height];
 setappdata(handles.guihandle,'boxCoords',boxCoords);
 
 setappdata(handles.guihandle,'abortFlag',false);
-
+setappdata(handles.guihandle,'photomPosns',zeros(8,2)+10);
+setappdata(handles.guihandle,'lastPicked',1);
+setappdata(handles.guihandle,'photomFluxes',zeros(8,1));
 colormap(handles.mainAxes,'jet')
 
 % Setup timers
@@ -205,11 +207,11 @@ else
             rect = getappdata(handles.guihandle,'boxCoords');
             rectangle('Position',rect,'EdgeColor','m','Linestyle','--','Parent',handles.mainAxes)
             
-            frm=getappdata(handles.guihandle,'frm');
-            lineNum=str2double(get(handles.lineNumBox,'String'));
-            hold(handles.mainAxes,'on')
-            plot([1,frm.width], [lineNum, lineNum],'c:','Parent',handles.mainAxes)
-            hold(handles.mainAxes,'off')
+%             frm=getappdata(handles.guihandle,'frm');
+%             lineNum=str2double(get(handles.lineNumBox,'String'));
+%             hold(handles.mainAxes,'on')
+%             plot([1,frm.width], [lineNum, lineNum],'c:','Parent',handles.mainAxes)
+%             hold(handles.mainAxes,'off')
         end
         
     else
@@ -223,6 +225,40 @@ else
         
     end
 
+    % Plot the photometric tap boxes
+    photomPosns = getappdata(handles.guihandle,'photomPosns');
+    photomSize = str2double(get(handles.photomSizeBox,'String'));
+
+    lp=getappdata(handles.guihandle,'lastPicked');
+    rx(1) = round(photomPosns(lp,1)-photomSize/2);
+    rx(2) = round(photomPosns(lp,2)-photomSize/2);
+    rx(3) = round(photomSize);
+    rx(4) = round(photomSize);
+    photBoxIm = imdata(rx(2):(rx(2)+rx(4)-1), rx(1):(rx(1)+rx(3)-1));
+    imagesc(photBoxIm,'Parent',handles.photomBoxAxes,clims)
+    set(handles.photomBoxAxes,'XTickLabel','')
+    set(handles.photomBoxAxes,'YTickLabel','')
+    
+    if get(handles.showBoxCheckbox,'Value') == 1                
+        if get(handles.zoomCheckbox,'Value') == 1
+            rect = getappdata(handles.guihandle,'boxCoords');
+            photomPosns(:,1) = photomPosns(:,1) - rect(1) + 1;
+            photomPosns(:,2) = photomPosns(:,2) - rect(2) + 1;
+        end
+        
+        hold(handles.mainAxes,'on')
+        rx=zeros(4,1);
+        for m = 1:8     
+            plot(photomPosns(m,1),photomPosns(m,2),'gx','Parent',handles.mainAxes)
+            rx(1) = photomPosns(m,1)-photomSize/2;
+            rx(2) = photomPosns(m,2)-photomSize/2;
+            rx(3) = photomSize;
+            rx(4) = photomSize;
+            rectangle('Position',rx,'EdgeColor','r','Linestyle','-','Parent',handles.mainAxes)
+        end           
+        hold(handles.mainAxes,'off')
+    end
+    
 end
 
 
@@ -232,7 +268,8 @@ cam=getappdata(handles.guihandle,'camobj');
 
 set(handles.currentTempText,'String',num2str(cam.Temperature));
 
-curIm = getappdata(handles.guihandle,'curIm');
+curIm = getappdata(handles.guihandle,'curIm');  
+    
 if get(handles.subtDarkCheckbox,'Value') == 1
     curIm = curIm - getappdata(handles.guihandle,'darkFrame');
 end
@@ -249,6 +286,44 @@ set(handles.maxText,'String',num2str(max(subImNoDark(:))));
 curCurs=get(handles.mainAxes,'currentpoint');
 set(handles.clickXText,'String',num2str(curCurs(1,1)))
 set(handles.clickYText,'String',num2str(curCurs(1,2)))
+
+
+% Measure photometric channels
+photomPosns = getappdata(handles.guihandle,'photomPosns');
+photomSize = str2double(get(handles.photomSizeBox,'String'));
+rx=zeros(4,1);
+photomFluxes=zeros(8,1);
+darkFrame = getappdata(handles.guihandle,'darkFrame');
+if get(handles.photomUseDarkCheckbox,'Value') == 1
+     if sum(darkFrame(:)) ~= 0 
+         imdata = curImNoDark - darkFrame;
+     else
+         errordlg('You must take a dark frame first','Dark frame not set')
+         set(handles.photomUseDarkCheckbox,'Value',0)
+         imdata=curImNoDark;
+     end
+else
+    imdata=curImNoDark;
+end
+
+for k = 1:8
+    rx(1) = round(photomPosns(k,1)-photomSize/2);
+    rx(2) = round(photomPosns(k,2)-photomSize/2);
+    rx(3) = round(photomSize);
+    rx(4) = round(photomSize);
+    photBoxIm = imdata(rx(2):(rx(2)+rx(4)-1), rx(1):(rx(1)+rx(3)-1));
+    flux = sum(photBoxIm(:));
+    photomFluxes(k) = flux;
+end
+
+set(handles.pickTxt1,'String',num2str(photomFluxes(1)));
+set(handles.pickTxt2,'String',num2str(photomFluxes(2)));
+set(handles.pickTxt3,'String',num2str(photomFluxes(3)));
+set(handles.pickTxt4,'String',num2str(photomFluxes(4)));
+set(handles.pickTxt5,'String',num2str(photomFluxes(5)));
+set(handles.pickTxt6,'String',num2str(photomFluxes(6)));
+set(handles.pickTxt7,'String',num2str(photomFluxes(7)));
+set(handles.pickTxt8,'String',num2str(photomFluxes(8)));
 
 
 
@@ -284,7 +359,7 @@ function tempSetBox_Callback(hObject, eventdata, handles)
 % Hints: get(hObject,'String') returns contents of tempSetBox as text
 %        str2double(get(hObject,'String')) returns contents of tempSetBox as a double
 cam=getappdata(handles.guihandle,'camobj');
-cam.Temperature=str2double(get(hObject,'String'));
+cam.SETTLE=str2double(get(hObject,'String'));
 
 % --- Executes during object creation, after setting all properties.
 function tempSetBox_CreateFcn(hObject, eventdata, handles)
@@ -987,3 +1062,217 @@ function lineNumBox_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
+
+
+
+
+% --- Executes on button press in pickBtn1.
+function pickBtn1_Callback(hObject, eventdata, handles)
+% hObject    handle to pickBtn1 (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+pickPhotomBox(handles,1)
+
+
+function pickPhotomBox(handles,chan)
+% % Stop video timer if running 
+% cam=getappdata(handles.guihandle,'camobj');
+% if getappdata(handles.guihandle,'videoState')
+%     videoWasRunning = true;
+%     cam.stopCapture;
+%     stop(handles.vidTimer);
+%     setappdata(handles.guihandle,'videoState',false)
+%     set(handles.videoStatusText,'String','Video Stopped')
+% else
+%     videoWasRunning = false;
+% end
+
+oldText = get(handles.videoStatusText,'String');
+set(handles.videoStatusText,'String','SELECT BOX CENTRE')
+set(handles.videoStatusText,'ForegroundColor',[1 0 0])
+
+photomPosns = getappdata(handles.guihandle,'photomPosns');
+waitforbuttonpress;
+curCurs=get(handles.mainAxes,'currentpoint');
+xPos = round(curCurs(1,1));
+yPos = round(curCurs(1,2));
+if get(handles.zoomCheckbox,'Value') == 1
+    rect = getappdata(handles.guihandle,'boxCoords');
+    yPos = yPos + rect(2) - 1;
+    xPos = xPos + rect(1) - 1;
+end
+photomPosns(chan,1) = xPos;
+photomPosns(chan,2) = yPos;
+%photomPosns
+setappdata(handles.guihandle,'photomPosns',photomPosns);
+setappdata(handles.guihandle,'lastPicked',chan)
+
+set(handles.videoStatusText,'String',oldText)
+set(handles.videoStatusText,'ForegroundColor',[0 0 0])
+
+% if videoWasRunning
+%     cam.startCapture;
+%     start(handles.vidTimer);
+%     setappdata(handles.guihandle,'videoState',true)
+%     set(handles.videoStatusText,'String','Video Running')
+% else
+%     set(handles.videoStatusText,'String','Video Stopped')
+% end
+
+
+
+% --- Executes on button press in photomUseDarkCheckbox.
+function photomUseDarkCheckbox_Callback(hObject, eventdata, handles)
+% hObject    handle to photomUseDarkCheckbox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hint: get(hObject,'Value') returns toggle state of photomUseDarkCheckbox
+
+
+% --- Executes on button press in pickBtn2.
+function pickBtn2_Callback(hObject, eventdata, handles)
+% hObject    handle to pickBtn2 (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+pickPhotomBox(handles,2)
+
+% --- Executes on button press in pickBtn3.
+function pickBtn3_Callback(hObject, eventdata, handles)
+% hObject    handle to pickBtn3 (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+pickPhotomBox(handles,3)
+
+% --- Executes on button press in pickBtn4.
+function pickBtn4_Callback(hObject, eventdata, handles)
+% hObject    handle to pickBtn4 (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+pickPhotomBox(handles,4)
+
+% --- Executes on button press in pickBtn5.
+function pickBtn5_Callback(hObject, eventdata, handles)
+% hObject    handle to pickBtn5 (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+pickPhotomBox(handles,5)
+
+% --- Executes on button press in pickBtn6.
+function pickBtn6_Callback(hObject, eventdata, handles)
+% hObject    handle to pickBtn6 (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+pickPhotomBox(handles,6)
+
+% --- Executes on button press in pickBtn7.
+function pickBtn7_Callback(hObject, eventdata, handles)
+% hObject    handle to pickBtn7 (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+pickPhotomBox(handles,7)
+
+% --- Executes on button press in pickBtn8.
+function pickBtn8_Callback(hObject, eventdata, handles)
+% hObject    handle to pickBtn8 (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+pickPhotomBox(handles,8)
+
+
+function darkFileBox_Callback(hObject, eventdata, handles)
+% hObject    handle to darkFileBox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of darkFileBox as text
+%        str2double(get(hObject,'String')) returns contents of darkFileBox as a double
+datapath = get(handles.datapathBox,'String');
+fileString = [datapath get(hObject,'String') '.fits'];
+try
+    inCube = fitsread(fileString);
+    darkFrame = uint16(mean(inCube,3));
+    setappdata(handles.guihandle,'darkFrame',darkFrame);
+catch err
+    errordlg('Cannot open file - does it exist?','Cannot open file')
+end
+
+
+% --- Executes during object creation, after setting all properties.
+function darkFileBox_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to darkFileBox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+
+function photomSizeBox_Callback(hObject, eventdata, handles)
+% hObject    handle to photomSizeBox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of photomSizeBox as text
+%        str2double(get(hObject,'String')) returns contents of photomSizeBox as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function photomSizeBox_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to photomSizeBox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+
+function photomPosnSavefileBox_Callback(hObject, eventdata, handles)
+% hObject    handle to photomPosnSavefileBox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of photomPosnSavefileBox as text
+%        str2double(get(hObject,'String')) returns contents of photomPosnSavefileBox as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function photomPosnSavefileBox_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to photomPosnSavefileBox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+% --- Executes on button press in photomSaveBtn.
+function photomSaveBtn_Callback(hObject, eventdata, handles)
+% hObject    handle to photomSaveBtn (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+photomPosns = getappdata(handles.guihandle,'photomPosns');
+filename=get(handles.photomPosnSavefileBox,'String');
+save(filename,'photomPosns')
+
+% --- Executes on button press in photomLoadBtn.
+function photomLoadBtn_Callback(hObject, eventdata, handles)
+% hObject    handle to photomLoadBtn (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+filename=get(handles.photomPosnSavefileBox,'String');
+load(filename)
+setappdata(handles.guihandle,'photomPosns',photomPosns);
+
+
