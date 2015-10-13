@@ -64,9 +64,12 @@ cameraType = 640;
 
 videoFrameRate = 25; %FPS for live video
 
-defaultRemoteIP = '10.88.18.1';
-defaultRemotePort = 9090;
-defaultLocalPort = 9091;
+%defaultRemoteIP = '10.88.18.1';
+defaultRemoteIP = '129.78.100.210';
+%defaultRemotePort = 9090;
+%defaultLocalPort = 9091;
+defaultRemotePort = 9091; 
+defaultLocalPort = 9090; 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
@@ -136,6 +139,15 @@ setappdata(handles.guihandle,'lastPicked',1);
 setappdata(handles.guihandle,'photomFluxes',zeros(8,1));
 colormap(handles.mainAxes,'jet')
 
+% Set up UDP object for remote photometry
+remoteIP = get(handles.remoteIPBox,'String');
+remotePort = str2double(get(handles.remotePortBox,'String'));
+localPort = str2double(get(handles.localPortBox,'String'));
+udpAI = udp(remoteIP, remotePort, 'LocalPort', localPort);
+fopen(udpAI);
+setappdata(handles.guihandle,'udpAIobject',udpAI);
+
+
 % Setup timers
 handles.vidTimer = timer(...
     'ExecutionMode', 'fixedRate', ...
@@ -145,7 +157,7 @@ setappdata(handles.guihandle,'videoState',false)
 
 handles.valTimer = timer(...
     'ExecutionMode', 'fixedRate', ...
-    'Period', 1, ...
+    'Period', 0.25, ...
     'TimerFcn', {@updateGUIValues,hObject} );
 
 % Update handles structure
@@ -181,7 +193,8 @@ if imdata == 10008
     % disp('No frame available.')
 else
     setappdata(handles.guihandle,'curIm',imdata);
-        
+    curImNoDark=imdata;
+    
     darkFrame = getappdata(handles.guihandle,'darkFrame');
     if get(handles.subtDarkCheckbox,'Value') == 1
         if sum(darkFrame(:)) ~= 0 
@@ -258,6 +271,67 @@ else
         end           
         hold(handles.mainAxes,'off')
     end
+    
+    
+    % Send photometry if in remote mode
+    % Set up UDP object if in remote acq mode
+    if get(handles.remoteAcqModeCheckbox,'Value') == 1
+%         %This is now done in the setup        
+%         remoteIP = get(handles.remoteIPBox,'String');
+%         remotePort = str2double(get(handles.remotePortBox,'String'));
+%         localPort = str2double(get(handles.localPortBox,'String'));
+%         udpAI = udp(remoteIP, remotePort, 'LocalPort', localPort);
+%         fopen(udpAI);
+        udpAI = getappdata(handles.guihandle,'udpAIobject');
+
+        % Check if there's a command in the buffer
+        if udpAI.BytesAvailable >= 3
+            cmdIn = fscanf(udpAI);
+            
+            switch cmdIn
+                case 'acq'
+                    % Send the values
+                    set(handles.acquireText,'Visible','on');
+                    %pause(0.01) % Can probably remove this
+                    drawnow
+                    
+                    % Measure photometric channels
+                    photomPosns = getappdata(handles.guihandle,'photomPosns');
+                    photomSize = str2double(get(handles.photomSizeBox,'String'));
+                    rx=zeros(4,1);
+                    photomFluxes=zeros(8,1);
+                    darkFrame = getappdata(handles.guihandle,'darkFrame');
+                    if get(handles.photomUseDarkCheckbox,'Value') == 1
+                         if sum(darkFrame(:)) ~= 0 
+                             imdataP = curImNoDark - darkFrame;
+                         else
+                             errordlg('You must take a dark frame first','Dark frame not set')
+                             set(handles.photomUseDarkCheckbox,'Value',0)
+                             imdataP=curImNoDark;
+                         end
+                    else
+                        imdataP=curImNoDark;
+                    end
+                    for k = 1:8
+                        rx(1) = round(photomPosns(k,1)-photomSize/2);
+                        rx(2) = round(photomPosns(k,2)-photomSize/2);
+                        rx(3) = round(photomSize);
+                        rx(4) = round(photomSize);
+                        photBoxIm = imdataP(rx(2):(rx(2)+rx(4)-1), rx(1):(rx(1)+rx(3)-1));
+                        flux = sum(photBoxIm(:));
+                        photomFluxes(k) = flux;
+                    end
+                    
+                    fwrite(udpAI, photomFluxes, 'double')
+                    
+                    set(handles.acquireText,'Visible','off');
+                otherwise
+                    disp('Received unknown command')
+            end
+        end
+        
+    end
+    
     
 end
 
@@ -514,6 +588,11 @@ cam.stopCapture;
 stop(handles.vidTimer);
 stop(handles.valTimer);
 delete(cam)
+
+udpAI = getappdata(handles.guihandle,'udpAIobject');
+fclose(udpAI);
+delete(udpAI)
+
 delete(handles.XenicsLight);
 delete(handles.vidTimer);
 delete(handles.valTimer);
@@ -594,16 +673,16 @@ datapath = get(handles.datapathBox,'String');
 filename = get(handles.savefileBox,'String');
 numFrames = str2double(get(handles.numFramesBox,'String'));
 
-% Set up UDP object if in remote acq mode
-if get(handles.remoteAcqModeCheckbox,'Value') == 1
-    remoteIP = get(handles.remoteIPBox,'String');
-    remotePort = str2double(get(handles.remotePortBox,'String'));
-    localPort = str2double(get(handles.localPortBox,'String'));
-    udpAI = udp(remoteIP, remotePort, 'LocalPort', localPort);
-    fopen(udpAI);
-    
-    udpWaitIts = 1000; %Wait for command this*0.01s. 
-end
+% % Set up UDP object if in remote acq mode
+% if get(handles.remoteAcqModeCheckbox,'Value') == 1
+%     remoteIP = get(handles.remoteIPBox,'String');
+%     remotePort = str2double(get(handles.remotePortBox,'String'));
+%     localPort = str2double(get(handles.localPortBox,'String'));
+%     udpAI = udp(remoteIP, remotePort, 'LocalPort', localPort);
+%     fopen(udpAI);
+%     
+%     udpWaitIts = 1000; %Wait for command this*0.01s. 
+% end
 
 fileString = [datapath filename '.fits'];
 if exist(fileString,'file')
@@ -642,28 +721,28 @@ else
         % If in remote acq mode, wait for the acq command
         % Currently uses a loop, TODO use an event of udp object.
         
-        if get(handles.remoteAcqModeCheckbox,'Value') == 1
-            for jj = 1:udpWaitIts
-                if udpAI.BytesAvailable >= 3
-                    cmdIn = fscanf(udpAI);
-                    switch cmdIn
-                        case 'acq'
-                            disp('Acquiring image by remote trigger')
-                            break
-                        otherwise
-                            disp('Received unknown command')
-                    end
-                end
-                  
-                if jj == udpWaits
-                    disp('No UDP command received before timeout!')
-                    errordlg('No command received','No UDP command received before timeout!')
-                    setappdata(handles.guihandle,'abortFlag',true);
-                end
-                
-                pause(0.01)             
-            end
-        end
+%         if get(handles.remoteAcqModeCheckbox,'Value') == 1
+%             for jj = 1:udpWaitIts
+%                 if udpAI.BytesAvailable >= 3
+%                     cmdIn = fscanf(udpAI);
+%                     switch cmdIn
+%                         case 'acq'
+%                             disp('Acquiring image by remote trigger')
+%                             break
+%                         otherwise
+%                             disp('Received unknown command')
+%                     end
+%                 end
+%                   
+%                 if jj == udpWaits
+%                     disp('No UDP command received before timeout!')
+%                     errordlg('No command received','No UDP command received before timeout!')
+%                     setappdata(handles.guihandle,'abortFlag',true);
+%                 end
+%                 
+%                 pause(0.01)             
+%             end
+%         end
         
         
         % Wait for a new image to be available
@@ -902,6 +981,22 @@ function remoteAcqModeCheckbox_Callback(hObject, eventdata, handles)
 
 % Hint: get(hObject,'Value') returns toggle state of remoteAcqModeCheckbox
 
+if get(hObject,'Value') == 1
+    if getappdata(handles.guihandle,'videoState')
+        set(handles.remoteAcqModeCheckbox,'ForegroundColor',[1 0 0]);
+        set(handles.remotePanel,'ForegroundColor',[1 0 0]);
+        set(handles.remotePanel,'ShadowColor',[1 0 0]);
+    else
+        errordlg('Video must be running to do this','Video not running')
+        set(handles.remoteAcqModeCheckbox,'Value',0);
+    end
+else
+    set(handles.remoteAcqModeCheckbox,'ForegroundColor',[0 0 0]);
+    set(handles.remotePanel,'ForegroundColor',[0 0 0]);
+    set(handles.remotePanel,'ShadowColor',[0.5 0.5 0.5]);
+end
+
+   
 
 % --- Executes on button press in lineAcqBtn.
 function lineAcqBtn_Callback(hObject, eventdata, handles)
