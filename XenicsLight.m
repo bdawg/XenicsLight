@@ -22,7 +22,7 @@ function varargout = XenicsLight(varargin)
 
 % Edit the above text to modify the response to help XenicsLight
 
-% Last Modified by GUIDE v2.5 11-Oct-2015 18:23:41
+% Last Modified by GUIDE v2.5 24-Oct-2015 14:51:29
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -144,6 +144,7 @@ remoteIP = get(handles.remoteIPBox,'String');
 remotePort = str2double(get(handles.remotePortBox,'String'));
 localPort = str2double(get(handles.localPortBox,'String'));
 udpAI = udp(remoteIP, remotePort, 'LocalPort', localPort);
+udpAI.Terminator='';
 fopen(udpAI);
 setappdata(handles.guihandle,'udpAIobject',udpAI);
 
@@ -325,6 +326,7 @@ else
                     fwrite(udpAI, photomFluxes, 'double')
                     
                     set(handles.acquireText,'Visible','off');
+                    
                 otherwise
                     disp('Received unknown command')
             end
@@ -672,28 +674,23 @@ cam=getappdata(handles.guihandle,'camobj');
 datapath = get(handles.datapathBox,'String');
 filename = get(handles.savefileBox,'String');
 numFrames = str2double(get(handles.numFramesBox,'String'));
+numFiles = str2double(get(handles.numFilesBox,'String'));
 
-% % Set up UDP object if in remote acq mode
-% if get(handles.remoteAcqModeCheckbox,'Value') == 1
-%     remoteIP = get(handles.remoteIPBox,'String');
-%     remotePort = str2double(get(handles.remotePortBox,'String'));
-%     localPort = str2double(get(handles.localPortBox,'String'));
-%     udpAI = udp(remoteIP, remotePort, 'LocalPort', localPort);
-%     fopen(udpAI);
-%     
-%     udpWaitIts = 1000; %Wait for command this*0.01s. 
+% Set up UDP object if in remote acq mode
+if get(handles.remoteAcqModeCheckbox,'Value') == 1
+    udpAI = getappdata(handles.guihandle,'udpAIobject');    
+    udpWaitIts = 1000; %Wait for command this*0.01s. 
+end
+
+% fileString = [datapath filename '.fits'];
+% if exist(fileString,'file')
+%     oldText = get(handles.videoStatusText,'String');
+%     set(handles.videoStatusText,'String','FILE EXISTS - Append Time')
+%     set(handles.videoStatusText,'ForegroundColor',[1 0 0])
+%     pause(1)
+%     set(handles.videoStatusText,'String',oldText)
+%     set(handles.videoStatusText,'ForegroundColor',[0 0 0])
 % end
-
-fileString = [datapath filename '.fits'];
-if exist(fileString,'file')
-    oldText = get(handles.videoStatusText,'String');
-    set(handles.videoStatusText,'String','FILE ALREADY EXISTS')
-    set(handles.videoStatusText,'ForegroundColor',[1 0 0])
-    pause(1)
-    set(handles.videoStatusText,'String',oldText)
-    set(handles.videoStatusText,'ForegroundColor',[0 0 0])
-
-else
 
     % Stop video timer if running
     if getappdata(handles.guihandle,'videoState')
@@ -707,7 +704,9 @@ else
     end
     pause(0.1)
 
-
+    
+for fileNum = 1:numFiles
+    
     % Save a cube
     frm=cam.frame;
     imageCube = zeros(frm.height,frm.width,numFrames);
@@ -715,34 +714,35 @@ else
 
     set(handles.videoStatusText,'ForegroundColor',[0 0 1])
     tic
+    
+    
     for frame = 1:numFrames
         imdata=cam.image;
 
         % If in remote acq mode, wait for the acq command
-        % Currently uses a loop, TODO use an event of udp object.
-        
-%         if get(handles.remoteAcqModeCheckbox,'Value') == 1
-%             for jj = 1:udpWaitIts
-%                 if udpAI.BytesAvailable >= 3
-%                     cmdIn = fscanf(udpAI);
-%                     switch cmdIn
-%                         case 'acq'
-%                             disp('Acquiring image by remote trigger')
-%                             break
-%                         otherwise
-%                             disp('Received unknown command')
-%                     end
-%                 end
-%                   
-%                 if jj == udpWaits
-%                     disp('No UDP command received before timeout!')
-%                     errordlg('No command received','No UDP command received before timeout!')
-%                     setappdata(handles.guihandle,'abortFlag',true);
-%                 end
-%                 
-%                 pause(0.01)             
-%             end
-%         end
+        % Currently uses a loop, TODO use an event of udp object.        
+        if get(handles.remoteAcqModeCheckbox,'Value') == 1
+            for jj = 1:udpWaitIts
+                if udpAI.BytesAvailable >= 3
+                    cmdIn = fscanf(udpAI);
+                    switch cmdIn
+                        case 'acq'
+                            disp([datestr(clock,'HH:MM:SS.FFF') ' Acquiring image by remote trigger'])
+                            break
+                        otherwise
+                            disp('Received unknown command')
+                    end
+                end
+                  
+                if jj == udpWaitIts
+                    disp('No UDP command received before timeout!')
+                    errordlg('No command received','No UDP command received before timeout!')
+                    setappdata(handles.guihandle,'abortFlag',true);
+                end
+                
+                pause(0.01)             
+            end
+        end
         
         
         % Wait for a new image to be available
@@ -756,6 +756,10 @@ else
         messageText = ['Acquired frame ' num2str(frame)];
         set(handles.videoStatusText,'String',messageText)
 
+        % If in remote acuistion mode, send confirmation
+        if get(handles.remoteAcqModeCheckbox,'Value') == 1
+            fprintf(udpAI,'cnf');
+        end
         
         if getappdata(handles.guihandle,'abortFlag')
             disp('Aborting acquisition')
@@ -774,20 +778,24 @@ else
     fitsHeader.ADCVIN=str2double(get(handles.adcVinBox,'String'));
     fitsHeader.ADCVREF=str2double(get(handles.adcVrefBox,'String'));
     set(handles.videoStatusText,'String','Saving FITS file')
+    pause(1) %%%%%TODO
+    fileString = [datapath filename '_' datestr(now,30) '.fits'];
     %fitswrite(imageCube, fileString);
     % Use fits_write since it allows header info to be saved
     fits_write(fileString, imageCube, fitsHeader);
     
-    if videoWasRunning
-        cam.startCapture;
-        start(handles.vidTimer);
-        setappdata(handles.guihandle,'videoState',true)
-        set(handles.videoStatusText,'String','Video Running')
-    else
-        set(handles.videoStatusText,'String','Video Stopped')
-    end
-
 end
+
+if videoWasRunning
+    cam.startCapture;
+    start(handles.vidTimer);
+    setappdata(handles.guihandle,'videoState',true)
+    set(handles.videoStatusText,'String','Video Running')
+else
+    set(handles.videoStatusText,'String','Video Stopped')
+end
+
+
 
 
 
@@ -983,9 +991,13 @@ function remoteAcqModeCheckbox_Callback(hObject, eventdata, handles)
 
 if get(hObject,'Value') == 1
     if getappdata(handles.guihandle,'videoState')
+        errordlg('NOTE: In this version, you must manually set the number of frames and filename when doing a remote cube acquisition. I''ll fix this later. Deal with it.','Warning - set frame info if necessary')
+
         set(handles.remoteAcqModeCheckbox,'ForegroundColor',[1 0 0]);
         set(handles.remotePanel,'ForegroundColor',[1 0 0]);
         set(handles.remotePanel,'ShadowColor',[1 0 0]);
+        set(handles.acquirePanel,'ForegroundColor',[1 0 0]);
+        set(handles.acquirePanel,'ShadowColor',[1 0 0]);
     else
         errordlg('Video must be running to do this','Video not running')
         set(handles.remoteAcqModeCheckbox,'Value',0);
@@ -994,6 +1006,8 @@ else
     set(handles.remoteAcqModeCheckbox,'ForegroundColor',[0 0 0]);
     set(handles.remotePanel,'ForegroundColor',[0 0 0]);
     set(handles.remotePanel,'ShadowColor',[0.5 0.5 0.5]);
+    set(handles.acquirePanel,'ForegroundColor',[0 0 0]);
+    set(handles.acquirePanel,'ShadowColor',[0.5 0.5 0.5]);
 end
 
    
@@ -1078,7 +1092,7 @@ else
                     cmdIn = fscanf(udpAI);
                     switch cmdIn
                         case 'acq'
-                            disp('Acquiring image by remote trigger')
+                            disp([datestr(clock,'HH:MM:SS.FFF') ' Acquiring image by remote trigger'])
                             break
                         otherwise
                             disp('Received unknown command')
@@ -1371,3 +1385,26 @@ load(filename)
 setappdata(handles.guihandle,'photomPosns',photomPosns);
 
 
+
+
+
+function numFilesBox_Callback(hObject, eventdata, handles)
+% hObject    handle to numFilesBox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of numFilesBox as text
+%        str2double(get(hObject,'String')) returns contents of numFilesBox as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function numFilesBox_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to numFilesBox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
