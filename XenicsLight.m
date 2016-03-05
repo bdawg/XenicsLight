@@ -191,8 +191,20 @@ imdata=cam.image;
 
 if imdata == 10008
     % Do nothing, since no new frame is available yet.
-    % disp('No frame available.')
+    % disp(['No frame available.' datestr(clock,30)])
 else
+    
+    % Instead of just using cam.image, keep going until there are no more
+    % images available. This may address the buildup of latnecy over time.
+    imdataLastGood = imdata;
+    imdataCheck = cam.image;
+    while imdataCheck ~= 10008
+        %disp(['Another image in buffer! ' datestr(clock,30)])
+        imdataLastGood = imdataCheck;
+        imdataCheck=cam.image;
+    end
+    imdata = imdataLastGood;
+    
     setappdata(handles.guihandle,'curIm',imdata);
     curImNoDark=imdata;
     
@@ -272,7 +284,7 @@ else
         end           
         hold(handles.mainAxes,'off')
     end
-    
+    drawnow
     
     % Send photometry if in remote mode
     % Set up UDP object if in remote acq mode
@@ -747,10 +759,21 @@ for fileNum = 1:numFiles
         
         % Wait for a new image to be available
         while imdata == 10008
-            pause(0.01)
+            pause(0.000001)
             imdata=cam.image;
         end
 
+        % Instead of just using cam.image, keep going until there are no more
+        % images available. This may address the buildup of latnecy over time.
+        imdataLastGood = imdata;
+        imdataCheck = cam.image;
+        while imdataCheck ~= 10008
+            %disp(['Another image in buffer! ' datestr(clock,30)])
+            imdataLastGood = imdataCheck;
+            imdataCheck=cam.image;
+        end
+        imdata = imdataLastGood;
+        
         setappdata(handles.guihandle,'curIm',imdata);
         imageCube(:,:,frame) = imdata;
         messageText = ['Acquired frame ' num2str(frame)];
@@ -1046,7 +1069,7 @@ if get(handles.remoteAcqModeCheckbox,'Value') == 1
     udpAI = udp(remoteIP, remotePort, 'LocalPort', localPort);
     fopen(udpAI);
     
-    udpWaitIts = 1000; %Wait for command this*0.01s. 
+    udpWaitIts = 6000; %Wait for command this*0.01s. 
 end
 
 fileString = [datapath filename '.fits'];
